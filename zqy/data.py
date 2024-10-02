@@ -69,7 +69,7 @@ def prepare_data(seq_len):
     # seq_len = max([len(sample) for sample in samples]) # 11
     print('max num of data per sample: ', seq_len)
     padded_samples, init_length = pad_or_truncate_sequences(samples, seq_len)
-    np.save('padded_sequences_7.npy', padded_samples)
+    np.save(f'padded_sequences_{seq_len}.npy', padded_samples)
     
     X = padded_samples[:, :, :-1]  # 特征数据
     y = padded_samples[:, 0, -1]  # 取最后一维作为标签，确保 y 的形状为 (num_samples,)

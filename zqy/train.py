@@ -53,7 +53,7 @@ class LSTMModel(nn.Module):
         # 取最后一个时间步的输出
         out = self.fc(lstm_out[:, -1, :])  # [batch_size, output_size]
 
-        return self.sigmoid(out).view(-1)
+        return out.view(-1)
     
 # TCN模型
 class TCN(nn.Module):
@@ -125,14 +125,12 @@ def train_model(X, y, criterion, num_epochs, device):
         optimizer = optim.Adam(model.parameters(), lr=learning_rate)
         
         model.train()  # 设定为训练模式 
-        best_acc = 0.0
+        test_a, test_b, test_d = [], [], []
         
         for epoch in range(num_epochs):
             running_loss = 0.0
-
-            total = 0
-            overall_acc = 0.0
-            all_A, all_B, all_D = 0.0, 0.0, 0.0
+            correct, total = 0, 0
+            overall_acc, true_positives, false_positives, labels_sum = 0.0, 0.0, 0.0, 0.0
             for samples, labels in train_loader:
                 # 将数据加载到设备（CPU 或 GPU）
                 samples, labels = samples.to(device), labels.to(device)
@@ -148,18 +146,25 @@ def train_model(X, y, criterion, num_epochs, device):
 
                 # 计算损失和准确率
                 running_loss += loss.item()
-                total += 1
-
-                A, B, D = metrics(outputs, labels)
-                all_A, all_B, all_D = all_A+A, all_B+B, all_D+D
+                outputs = torch.sigmoid(outputs)
+                predicted = (outputs > 0.5).float() # 阈值 0.5 将概率转换为二分类标签
+                total += labels.size(0)
+                
+                correct += (predicted == labels).sum().item()
+                true_positives += (predicted * labels).sum().item()
+                false_positives += (predicted * (1 - labels)).sum().item()
+                labels_sum += labels.sum().item()
 
             # 记录训练损失
             epoch_loss = running_loss / len(train_loader)
             train_losses.append(epoch_loss)
-            avg_A, avg_B, avg_D = all_A/total, all_B/total, all_D/total
-            epoch_acc = compute_overall_accuracy(avg_A, avg_B, C_train, avg_D)*100
-
-            print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {epoch_loss:.4f}, A: {avg_A*100:.2f}%, B: {avg_B*100:.2f}%, D: {avg_D*100:.2f}%, Overall_ACC: {epoch_acc:.2f}%')
+            A = true_positives / labels_sum
+            B = false_positives / (total - labels_sum)
+            D = correct / total
+            epoch_acc = compute_overall_accuracy(A, B, C_train, D)*100
+            # epoch_acc = overall_acc / total * 100
+            if (epoch+1) % 10 == 0:
+                print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {epoch_loss:.4f}, A: {A*100:.2f}%, B: {B*100:.2f}%, D: {D*100:.2f}%, Overall_ACC: {epoch_acc:.2f}%')
 
             # 检查损失是否有改善
             if epoch_loss < best_loss and (epoch+1) % 10 == 0:
@@ -169,34 +174,44 @@ def train_model(X, y, criterion, num_epochs, device):
                 print(f'Best Model checkpoint saved at epoch {epoch+1} !!')
 
         model.load_state_dict(torch.load(best_model_path))
-        acc = test_model(model, test_loader, criterion, device, C_val)
+        a, b, d, acc = test_model(model, test_loader, criterion, device, C_val)
+        test_a.append(a)
+        test_b.append(b)
+        test_d.append(d)
         all_acc.append(acc)
-
+    
+    avg_a, avg_b, avg_d = sum(test_a) / len(test_a), sum(test_b) / len(test_b), sum(test_d) / len(test_d)
     avg_acc = sum(all_acc) / len(all_acc)
-    print(f"average Overall_ACC: {avg_acc:.2f}%")
+    
+    print(f"AVG: A = {avg_a:.2f}%, B = {avg_b:.2f}%, C = {C_val*100:.2f}%, D = {avg_d:.2f}%, overall acc = {avg_acc:.2f}%")
     
 # 测试模型
 def test_model(model, test_loader, criterion, device, C_val):
 
     model.eval()  # 设定为测试模式
-    total = 0
-    overall_acc = 0.0
-    all_A, all_B, all_D = 0.0, 0.0, 0.0
+    correct, total = 0, 0
+    overall_acc, true_positives, false_positives, labels_sum = 0.0, 0.0, 0.0, 0.0
     with torch.no_grad():
         for samples, labels in test_loader:
             samples, labels = samples.to(device), labels.to(device)
             outputs = model(samples)
-            A, B, D = metrics(outputs, labels)
-            all_A, all_B, all_D = all_A+A, all_B+B, all_D+D
-            total += 1
+            outputs = torch.sigmoid(outputs)
+            predicted = (outputs > 0.5).float() # 阈值 0.5 将概率转换为二分类标签
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+            true_positives += (predicted * labels).sum().item()
+            false_positives += (predicted * (1 - labels)).sum().item()
+            labels_sum += labels.sum().item()
     
-    avg_A, avg_B, avg_D = all_A/total, all_B/total, all_D/total
-    acc = compute_overall_accuracy(avg_A, avg_B, C_val, avg_D)*100
-    print(f'TEST result -- A: {avg_A*100:.2f}%, B: {avg_B*100:.2f}%, C: {C_val*100:.2f}% D: {avg_D*100:.2f}%, Overall_ACC: {acc:.2f}%')
+    A = true_positives / labels_sum
+    B = false_positives / (total - labels_sum)
+    D = correct / total
+    acc = compute_overall_accuracy(A, B, C_val, D)*100
+    print(f'TEST result -- A: {A*100:.2f}%, B: {B*100:.2f}%, C: {C_val*100:.2f}% D: {D*100:.2f}%, Overall_ACC: {acc:.2f}%')
     
     model.train()
     
-    return acc
+    return A*100, B*100, D*100, acc
 
 # 绘制损失曲线
 def plot_loss_curve(train_losses):
@@ -233,12 +248,19 @@ output_size = 1  # 输出大小（二分类）
 
 # 训练参数
 learning_rate = 0.001
-num_epochs = 100
+num_epochs = 10
 batch_size = 32
+
+# weights for pos
+num_pos = 16974
+num_neg = 41639
+weight_positive = num_neg / num_pos
+weight_negative = 1.0
+class_weights = torch.tensor([weight_negative, weight_positive], dtype=torch.float32)
 
 # 损失函数和优化器
 # criterion = nn.NLLLoss()
-criterion = nn.BCELoss()
+criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor(weight_positive*3, dtype=torch.float32))
 # criterion = nn.CrossEntropyLoss()
 
 best_model_path = 'checkpoints/best_model.pth'
