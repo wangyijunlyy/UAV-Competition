@@ -9,6 +9,10 @@ import random
 import numpy as np
 from data import prepare_data, access_data
 from sklearn.model_selection import KFold
+
+# import os
+# os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"  # 只使用第0和第1块显卡
+
 #---------------------------------------------------#
 #   设置种子
 #---------------------------------------------------#
@@ -100,6 +104,7 @@ kfold = KFold(n_splits=5, shuffle=True)
 # 训练模型
 def train_model(X, y, criterion, num_epochs, device):
     all_acc = []
+    test_a, test_b, test_d = [], [], []
     
     for fold, (train_idx, val_idx) in enumerate(kfold.split(X)):
         print(f'Fold {fold + 1}')
@@ -122,10 +127,11 @@ def train_model(X, y, criterion, num_epochs, device):
 
         model = LSTMModel(X_train.shape[2], hidden_size, output_size, num_layers).to(device)
         # model = TCN(input_size=X_train.shape[2], output_size=1, num_channels=num_channels).to(device)
+        # if torch.cuda.device_count() > 1:
+        #     model = nn.DataParallel(model)
         optimizer = optim.Adam(model.parameters(), lr=learning_rate)
         
-        model.train()  # 设定为训练模式 
-        test_a, test_b, test_d = [], [], []
+        model.train()  # 设定为训练模式
         
         for epoch in range(num_epochs):
             running_loss = 0.0
@@ -174,6 +180,8 @@ def train_model(X, y, criterion, num_epochs, device):
                 print(f'Best Model checkpoint saved at epoch {epoch+1} !!')
 
         model.load_state_dict(torch.load(best_model_path))
+        # if torch.cuda.device_count() > 1:
+        #     model = nn.DataParallel(model)
         a, b, d, acc = test_model(model, test_loader, criterion, device, C_val)
         test_a.append(a)
         test_b.append(b)
@@ -183,7 +191,7 @@ def train_model(X, y, criterion, num_epochs, device):
     avg_a, avg_b, avg_d = sum(test_a) / len(test_a), sum(test_b) / len(test_b), sum(test_d) / len(test_d)
     avg_acc = sum(all_acc) / len(all_acc)
     
-    print(f"AVG: A = {avg_a:.2f}%, B = {avg_b:.2f}%, C = {C_val*100:.2f}%, D = {avg_d:.2f}%, overall acc = {avg_acc:.2f}%")
+    print(f"seq : {seq_len}. AVG: A = {avg_a:.2f}%, B = {avg_b:.2f}%, C = {C_val*100:.2f}%, D = {avg_d:.2f}%, overall acc = {avg_acc:.2f}%")
     
 # 测试模型
 def test_model(model, test_loader, criterion, device, C_val):
@@ -196,6 +204,7 @@ def test_model(model, test_loader, criterion, device, C_val):
             samples, labels = samples.to(device), labels.to(device)
             outputs = model(samples)
             outputs = torch.sigmoid(outputs)
+            
             predicted = (outputs > 0.5).float() # 阈值 0.5 将概率转换为二分类标签
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
@@ -225,7 +234,7 @@ def plot_loss_curve(train_losses):
     plt.savefig('./train_loss.jpg')
     plt.show()
 
-seq_len = 7
+seq_len = 3
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # train_samples, test_samples, train_labels, test_labels = prepare_data()
@@ -248,7 +257,7 @@ output_size = 1  # 输出大小（二分类）
 
 # 训练参数
 learning_rate = 0.001
-num_epochs = 10
+num_epochs = 100
 batch_size = 32
 
 # weights for pos
@@ -256,11 +265,12 @@ num_pos = 16974
 num_neg = 41639
 weight_positive = num_neg / num_pos
 weight_negative = 1.0
-class_weights = torch.tensor([weight_negative, weight_positive], dtype=torch.float32)
+# class_weights = torch.tensor([weight_negative, weight_positive], dtype=torch.float32)
 
 # 损失函数和优化器
 # criterion = nn.NLLLoss()
-criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor(weight_positive*3, dtype=torch.float32))
+# criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor(weight_positive*3, dtype=torch.float32))
+criterion = nn.BCEWithLogitsLoss()
 # criterion = nn.CrossEntropyLoss()
 
 best_model_path = 'checkpoints/best_model.pth'
