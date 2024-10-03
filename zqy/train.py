@@ -234,7 +234,7 @@ def plot_loss_curve(train_losses):
     plt.savefig('./train_loss.jpg')
     plt.show()
 
-seq_len = 3
+seq_len = 7
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # train_samples, test_samples, train_labels, test_labels = prepare_data()
