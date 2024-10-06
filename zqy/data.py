@@ -85,8 +85,8 @@ def prepare_data(seq_len):
     
     # return  train_samples, test_samples, train_labels, test_labels
 
-def access_data():
-    padded_samples =  np.load('/home/user/project/zqy/uav/padded_sequences_8.npy')
+def access_data(seq_len):
+    padded_samples =  np.load(f'/home/user/project/zqy/uav/padded_sequences_{seq_len}.npy')
     
     X = padded_samples[:, :, :-1]  # 特征数据
     y = padded_samples[:, 0, -1]  # 取最后一维作为标签，确保 y 的形状为 (num_samples,)
